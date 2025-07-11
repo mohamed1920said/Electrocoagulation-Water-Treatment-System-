@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Electro-Coagulation UI</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      background: #f0f2f5;
+    }
+    .app-container {
+      max-width: 480px;
+      margin: auto;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .status-bar {
+      background: #1e3c72;
+      color: white;
+      padding: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .login-header {
+      padding: 10px;
+      background: #2a5298;
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .sensor-panel {
+      display: flex;
+      justify-content: space-around;
+      background: #f9f9f9;
+      padding: 10px;
+    }
+    .sensor-item {
+      text-align: center;
+    }
+    .status-btn {
+      display: block;
+      width: 90%;
+      margin: 10px auto;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: default;
+    }
+    .success { background: #28a745; color: white; }
+    .danger { background: #dc3545; color: white; }
+    .actuator-panel { padding: 10px; }
+    .chart-container { padding: 10px; }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <header class="status-bar">
+      <span id="timeNow">--:--:--</span>
+      <div>
+        <i class="fas fa-signal"></i>
+        <i class="fas fa-wifi"></i>
+        <i class="fas fa-battery-full"></i>
+      </div>
+    </header>
+
+    <div class="login-header">
+      <span><i class="fas fa-arrow-left"></i></span>
+      <h1>Electro-Coagulation</h1>
+      <button class="btn-logout">Logout</button>
+    </div>
+
+    <div class="sensor-panel">
+      <div class="sensor-item">
+        <i class="fas fa-thermometer-half"></i>
+        <div>Temp:</div>
+        <div id="tempValue">-- °C</div>
+      </div>
+      <div class="sensor-item">
+        <i class="fas fa-ruler-horizontal"></i>
+        <div>Distance:</div>
+        <div id="distanceValue">-- cm</div>
+      </div>
+      <div class="sensor-item">
+        <i class="fas fa-vial"></i>
+        <div>pH:</div>
+        <div id="phValue">--</div>
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <canvas id="phTempChart"></canvas>
+    </div>
+
+    <button id="electroDoneBtn" class="status-btn">Loading fill status...</button>
+    <button id="electroBtn" class="status-btn">Loading drain status...</button>
+    <button id="mixingBtn" class="status-btn">Loading mixing status...</button>
+    <button id="acidBtn" class="status-btn">Loading acid pump status...</button>
+    <button id="baseBtn" class="status-btn">Loading base pump status...</button>
+
+    <div class="actuator-panel">
+      <h3>Actuators</h3>
+      <!-- Add actuator buttons and controls here -->
+    </div>
+  </div>
+
+<script>
+  const timeEl = document.getElementById('timeNow');
+  function updateTime() {
+    const now = new Date();
+    timeEl.textContent = now.toLocaleTimeString();
+  }
+  setInterval(updateTime, 1000);
+  updateTime();
+
+  function updateButton(button, isOn, onText, offText) {
+    if (isOn === 1) {
+      button.textContent = onText;
+      button.className = 'status-btn success';
+    } else {
+      button.textContent = offText;
+      button.className = 'status-btn danger';
+    }
+  }
+
+  const chart = new Chart(document.getElementById('phTempChart'), {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'pH vs Temp',
+        data: [],
+        borderColor: 'blue',
+        backgroundColor: 'rgba(0,123,255,0.2)',
+        tension: 0.3
+      }]
+    },
+    options: {
+      scales: {
+        x: {
+          title: { display: true, text: 'Temperature (°C)' }
+        },
+        y: {
+          title: { display: true, text: 'pH' },
+          min: 5,
+          max: 9
+        }
+      }
+    }
+  });
+
+  async function fetchStatus() {
+    try {
+      const res = await fetch('http://192.168.137.1:18000/api/stream');
+      const data = await res.json();
+      const temp = parseFloat(data.temp).toFixed(2);
+      const ph = parseFloat(data.ph).toFixed(2);
+
+      document.getElementById('tempValue').textContent = `${temp} °C`;
+      document.getElementById('distanceValue').textContent = `${data.distance.toFixed(1)} cm`;
+      document.getElementById('phValue').textContent = ph;
+
+      updateButton(document.getElementById('electroDoneBtn'), data.pompe_fill, 'Tank Filled', 'Tank NOT Filled');
+      updateButton(document.getElementById('electroBtn'), data.pompe_drain, 'Draining...', 'Drain OFF');
+      updateButton(document.getElementById('mixingBtn'), data.mixeur, 'Mixing ON', 'Mixing OFF');
+      updateButton(document.getElementById('acidBtn'), data.pompe_acide, 'Acid ON', 'Acid OFF');
+      updateButton(document.getElementById('baseBtn'), data.pompe_base, 'Base ON', 'Base OFF');
+
+      // Chart update
+      chart.data.labels.push(temp);
+      chart.data.datasets[0].data.push(ph);
+      if (chart.data.labels.length > 20) {
+        chart.data.labels.shift();
+        chart.data.datasets[0].data.shift();
+      }
+      chart.update();
+
+    } catch (e) {
+      console.error('Error fetching API:', e);
+    }
+  }
+
+  fetchStatus();
+  setInterval(fetchStatus, 10000);
+</script>
+</body>
+</html>
